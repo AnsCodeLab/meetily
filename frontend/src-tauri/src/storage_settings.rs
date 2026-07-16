@@ -192,3 +192,69 @@ pub async fn change_models_directory<R: Runtime>(
     info!("Models directory changed: {:?} -> {:?}", old_root, new_root);
     Ok(new_root.to_string_lossy().to_string())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn migrate_moves_files_and_nested_subdirectories() {
+        let old = tempfile::tempdir().unwrap();
+        let new = tempfile::tempdir().unwrap();
+
+        std::fs::write(old.path().join("ggml-base.bin"), b"whisper model").unwrap();
+        std::fs::create_dir_all(old.path().join("parakeet")).unwrap();
+        std::fs::write(old.path().join("parakeet").join("encoder.onnx"), b"parakeet model").unwrap();
+        std::fs::create_dir_all(old.path().join("summary")).unwrap();
+        std::fs::write(old.path().join("summary").join("qwen.gguf"), b"summary model").unwrap();
+
+        migrate_directory_contents(old.path(), new.path()).unwrap();
+
+        assert_eq!(
+            std::fs::read(new.path().join("ggml-base.bin")).unwrap(),
+            b"whisper model"
+        );
+        assert_eq!(
+            std::fs::read(new.path().join("parakeet").join("encoder.onnx")).unwrap(),
+            b"parakeet model"
+        );
+        assert_eq!(
+            std::fs::read(new.path().join("summary").join("qwen.gguf")).unwrap(),
+            b"summary model"
+        );
+        // Old root should be cleaned up once emptied by the move.
+        assert!(!old.path().exists());
+    }
+
+    #[test]
+    fn migrate_never_clobbers_an_existing_destination_file() {
+        let old = tempfile::tempdir().unwrap();
+        let new = tempfile::tempdir().unwrap();
+
+        std::fs::write(old.path().join("ggml-base.bin"), b"new download").unwrap();
+        std::fs::write(new.path().join("ggml-base.bin"), b"already there").unwrap();
+
+        migrate_directory_contents(old.path(), new.path()).unwrap();
+
+        // Destination file must be untouched; source is left behind rather than lost.
+        assert_eq!(
+            std::fs::read(new.path().join("ggml-base.bin")).unwrap(),
+            b"already there"
+        );
+        assert_eq!(
+            std::fs::read(old.path().join("ggml-base.bin")).unwrap(),
+            b"new download"
+        );
+    }
+
+    #[test]
+    fn migrate_is_a_noop_when_old_root_does_not_exist() {
+        let old = tempfile::tempdir().unwrap();
+        let missing = old.path().join("never-created");
+        let new = tempfile::tempdir().unwrap();
+
+        migrate_directory_contents(&missing, new.path()).unwrap();
+
+        assert!(std::fs::read_dir(new.path()).unwrap().next().is_none());
+    }
+}
