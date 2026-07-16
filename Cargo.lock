@@ -3643,6 +3643,7 @@ dependencies = [
  "objc",
  "once_cell",
  "ort",
+ "parking_lot",
  "posthog-rs",
  "rand 0.8.6",
  "rayon",

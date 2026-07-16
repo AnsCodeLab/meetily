@@ -90,6 +90,7 @@ interface ConfigContextType {
   storageLocations: StorageLocations | null;
   isLoadingPreferences: boolean;
   loadPreferences: () => Promise<void>;
+  refreshStorageLocations: () => Promise<void>;
   updateNotificationSettings: (settings: NotificationSettings) => Promise<void>;
 }
 
@@ -410,6 +411,30 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
     setProviderApiKeys(prev => ({ ...prev, [provider]: apiKey }));
   }, []);
 
+  // Fetch the storage locations actually in effect right now (custom overrides if set).
+  const fetchStorageLocations = useCallback(async () => {
+    const [dbDir, modelsDir, recordingPrefs] = await Promise.all([
+      invoke<string>('get_database_directory'),
+      invoke<string>('get_models_root_directory'),
+      invoke<{ save_folder: string }>('get_recording_preferences')
+    ]);
+
+    setStorageLocations({
+      database: dbDir,
+      models: modelsDir,
+      recordings: recordingPrefs.save_folder
+    });
+  }, []);
+
+  // Re-fetch storage locations after the user changes a folder (bypasses the lazy-load cache).
+  const refreshStorageLocations = useCallback(async () => {
+    try {
+      await fetchStorageLocations();
+    } catch (error) {
+      console.error('[ConfigContext] Failed to refresh storage locations:', error);
+    }
+  }, [fetchStorageLocations]);
+
   // Lazy load preference settings (only loads if not already cached)
   const loadPreferences = useCallback(async () => {
     // If already loaded, don't reload
@@ -437,17 +462,7 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
       }
 
       // Load storage locations
-      const [dbDir, modelsDir, recordingsDir] = await Promise.all([
-        invoke<string>('get_database_directory'),
-        invoke<string>('whisper_get_models_directory'),
-        invoke<string>('get_default_recordings_folder_path')
-      ]);
-
-      setStorageLocations({
-        database: dbDir,
-        models: modelsDir,
-        recordings: recordingsDir
-      });
+      await fetchStorageLocations();
 
       // Mark as loaded
       preferencesLoadedRef.current = true;
@@ -457,7 +472,7 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
       isLoadingRef.current = false;
       setIsLoadingPreferences(false);
     }
-  }, []);
+  }, [fetchStorageLocations]);
 
   // Update notification settings
   const updateNotificationSettings = useCallback(async (settings: NotificationSettings) => {
@@ -506,6 +521,7 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
     storageLocations,
     isLoadingPreferences,
     loadPreferences,
+    refreshStorageLocations,
     updateNotificationSettings,
   }), [
     modelConfig,
@@ -528,6 +544,7 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
     storageLocations,
     isLoadingPreferences,
     loadPreferences,
+    refreshStorageLocations,
     updateNotificationSettings,
   ]);
 

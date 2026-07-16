@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Switch } from '@/components/ui/switch';
-import { FolderOpen } from 'lucide-react';
+import { FolderOpen, FolderInput } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { DeviceSelection, SelectedDevices } from '@/components/DeviceSelection';
 import Analytics from '@/lib/analytics';
@@ -104,6 +104,35 @@ export function RecordingSettings({ onSave }: RecordingSettingsProps) {
     }
   };
 
+  const handleChangeFolder = async () => {
+    try {
+      const selected = await invoke<string | null>('select_recording_folder');
+      if (!selected || selected === preferences.save_folder) {
+        return;
+      }
+
+      const newPreferences = { ...preferences, save_folder: selected };
+      setPreferences(newPreferences);
+      setSaving(true);
+      try {
+        await invoke('set_recording_preferences', { preferences: newPreferences });
+        onSave?.(newPreferences);
+        toast.success('Recordings folder updated', { description: selected });
+        await Analytics.track('recordings_folder_changed', {});
+      } catch (error) {
+        console.error('Failed to save new recordings folder:', error);
+        toast.error('Failed to update recordings folder', {
+          description: error instanceof Error ? error.message : String(error)
+        });
+      } finally {
+        setSaving(false);
+      }
+    } catch (error) {
+      console.error('Failed to open folder picker:', error);
+      toast.error('Failed to open folder picker');
+    }
+  };
+
   const handleNotificationToggle = async (enabled: boolean) => {
     try {
       setShowRecordingNotification(enabled);
@@ -184,13 +213,23 @@ export function RecordingSettings({ onSave }: RecordingSettingsProps) {
             <div className="text-sm text-gray-600 mb-3 break-all">
               {preferences.save_folder || 'Default folder'}
             </div>
-            <button
-              onClick={handleOpenFolder}
-              className="flex items-center gap-2 px-3 py-2 text-sm border border-gray-300 rounded-md hover:bg-gray-50 transition-colors"
-            >
-              <FolderOpen className="w-4 h-4" />
-              Open Folder
-            </button>
+            <div className="flex gap-2">
+              <button
+                onClick={handleChangeFolder}
+                disabled={saving}
+                className="flex items-center gap-2 px-3 py-2 text-sm border border-gray-300 rounded-md hover:bg-gray-50 transition-colors disabled:opacity-50"
+              >
+                <FolderInput className="w-4 h-4" />
+                Change Folder
+              </button>
+              <button
+                onClick={handleOpenFolder}
+                className="flex items-center gap-2 px-3 py-2 text-sm border border-gray-300 rounded-md hover:bg-gray-50 transition-colors"
+              >
+                <FolderOpen className="w-4 h-4" />
+                Open Folder
+              </button>
+            </div>
           </div>
 
           <div className="p-4 border rounded-lg bg-blue-50">

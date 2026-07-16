@@ -1,22 +1,22 @@
 use crate::whisper_engine::{ModelInfo, WhisperEngine};
 use std::sync::{Arc, Mutex};
-use std::path::PathBuf;
-use tauri::{command, Emitter, Manager, AppHandle, Runtime};
+use parking_lot::Mutex as PLMutex;
+use std::path::{Path, PathBuf};
+use tauri::{command, Emitter};
 use crate::config::WHISPER_MODEL_CATALOG;
 
 // Global whisper engine
 pub static WHISPER_ENGINE: Mutex<Option<Arc<WhisperEngine>>> = Mutex::new(None);
 
 // Global models directory path (set during app initialization)
-static MODELS_DIR: Mutex<Option<PathBuf>> = Mutex::new(None);
+static MODELS_DIR: PLMutex<Option<PathBuf>> = PLMutex::new(None);
 
-/// Initialize the models directory path using app_data_dir
-/// This should be called during app setup before whisper_init
-pub fn set_models_directory<R: Runtime>(app: &AppHandle<R>) {
-    let app_data_dir = app.path().app_data_dir()
-        .expect("Failed to get app data dir");
-
-    let models_dir = app_data_dir.join("models");
+/// Set the models directory to `root` (the resolved storage-settings root: either the
+/// user's custom location or the default `<app_data_dir>/models`). Called during app
+/// setup before `whisper_init`, and again from `storage_settings::change_models_directory`
+/// when the user relocates the models folder at runtime.
+pub fn set_models_directory(root: &Path) {
+    let models_dir = root.to_path_buf();
 
     // Create directory if it doesn't exist
     if !models_dir.exists() {
@@ -28,13 +28,22 @@ pub fn set_models_directory<R: Runtime>(app: &AppHandle<R>) {
 
     log::info!("Models directory set to: {}", models_dir.display());
 
-    let mut guard = MODELS_DIR.lock().unwrap();
-    *guard = Some(models_dir);
+    *MODELS_DIR.lock() = Some(models_dir);
+}
+
+/// Re-point the Whisper engine at a new models directory immediately, without an app
+/// restart. Used when the user changes the models storage location.
+pub fn reinit_with_dir(root: PathBuf) -> Result<(), String> {
+    set_models_directory(&root);
+    let engine = WhisperEngine::new_with_models_dir(Some(root))
+        .map_err(|e| format!("Failed to initialize whisper engine: {}", e))?;
+    *WHISPER_ENGINE.lock().unwrap() = Some(Arc::new(engine));
+    Ok(())
 }
 
 /// Get the configured models directory
 fn get_models_directory() -> Option<PathBuf> {
-    MODELS_DIR.lock().unwrap().clone()
+    MODELS_DIR.lock().clone()
 }
 
 #[command]

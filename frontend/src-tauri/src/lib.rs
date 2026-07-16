@@ -50,6 +50,7 @@ pub mod groq;
 pub mod openrouter;
 pub mod parakeet_engine;
 pub mod state;
+pub mod storage_settings;
 pub mod summary;
 pub mod tray;
 pub mod utils;
@@ -451,8 +452,12 @@ pub fn run() {
                 }
             });
 
-            // Set models directory to use app_data_dir (unified storage location)
-            whisper_engine::commands::set_models_directory(&_app.handle());
+            // Resolve the models root: the user's custom storage location if one was
+            // configured, otherwise the default unified <app_data_dir>/models location.
+            let models_root = storage_settings::resolve_models_root(&_app.handle());
+
+            // Set models directory for Whisper
+            whisper_engine::commands::set_models_directory(&models_root);
 
             // Initialize Whisper engine on startup
             tauri::async_runtime::spawn(async {
@@ -462,7 +467,7 @@ pub fn run() {
             });
 
             // Set Parakeet models directory
-            parakeet_engine::commands::set_models_directory(&_app.handle());
+            parakeet_engine::commands::set_models_directory(&models_root);
 
             // Initialize Parakeet engine on startup
             tauri::async_runtime::spawn(async {
@@ -730,6 +735,10 @@ pub fn run() {
             database::commands::get_database_directory,
             database::commands::open_database_folder,
             whisper_engine::commands::open_models_folder,
+            storage_settings::get_models_root_directory,
+            storage_settings::get_default_models_root_directory,
+            storage_settings::select_models_directory,
+            storage_settings::change_models_directory,
             // Onboarding commands
             onboarding::get_onboarding_status,
             onboarding::save_onboarding_status_cmd,

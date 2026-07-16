@@ -2,8 +2,9 @@
 
 import { useEffect, useState, useRef } from "react"
 import { Switch } from "./ui/switch"
-import { FolderOpen } from "lucide-react"
+import { FolderOpen, FolderInput } from "lucide-react"
 import { invoke } from "@tauri-apps/api/core"
+import { toast } from "sonner"
 import Analytics from "@/lib/analytics"
 import AnalyticsConsentSwitch from "./AnalyticsConsentSwitch"
 import { useConfig, NotificationSettings } from "@/contexts/ConfigContext"
@@ -14,12 +15,14 @@ export function PreferenceSettings() {
     storageLocations,
     isLoadingPreferences,
     loadPreferences,
+    refreshStorageLocations,
     updateNotificationSettings
   } = useConfig();
 
   const [notificationsEnabled, setNotificationsEnabled] = useState<boolean | null>(null);
   const [isInitialLoad, setIsInitialLoad] = useState(true);
   const [previousNotificationsEnabled, setPreviousNotificationsEnabled] = useState<boolean | null>(null);
+  const [changingModelsFolder, setChangingModelsFolder] = useState(false);
   const hasTrackedViewRef = useRef(false);
 
   // Lazy load preferences on mount (only loads if not already cached)
@@ -133,6 +136,42 @@ export function PreferenceSettings() {
     }
   };
 
+  const handleChangeModelsFolder = async () => {
+    try {
+      const selected = await invoke<string | null>('select_models_directory');
+      if (!selected || selected === storageLocations?.models) {
+        return;
+      }
+
+      const confirmed = confirm(
+        `Move all downloaded models to:\n\n${selected}\n\n` +
+        `Existing Whisper, Parakeet, and summary models will be moved (not re-downloaded). ` +
+        `This may take a moment for large models.`
+      );
+      if (!confirmed) {
+        return;
+      }
+
+      setChangingModelsFolder(true);
+      try {
+        await invoke('change_models_directory', { newDir: selected });
+        await refreshStorageLocations();
+        toast.success('Models folder updated', { description: selected });
+        await Analytics.track('models_folder_changed', {});
+      } catch (error) {
+        console.error('Failed to change models folder:', error);
+        toast.error('Failed to change models folder', {
+          description: error instanceof Error ? error.message : String(error)
+        });
+      } finally {
+        setChangingModelsFolder(false);
+      }
+    } catch (error) {
+      console.error('Failed to open folder picker:', error);
+      toast.error('Failed to open folder picker');
+    }
+  };
+
   // Show loading only if we're actually loading and don't have cached data
   if (isLoadingPreferences && !notificationSettings && !storageLocations) {
     return <div className="max-w-2xl mx-auto p-6">Loading Preferences...</div>
@@ -183,19 +222,30 @@ export function PreferenceSettings() {
           </div> */}
 
           {/* Models Location */}
-          {/* <div className="p-4 border rounded-lg bg-gray-50">
-            <div className="font-medium mb-2">Whisper Models</div>
+          <div className="p-4 border rounded-lg bg-gray-50">
+            <div className="font-medium mb-2">Downloaded AI Models</div>
             <div className="text-sm text-gray-600 mb-3 break-all font-mono text-xs">
               {storageLocations?.models || 'Loading...'}
             </div>
-            <button
-              onClick={() => handleOpenFolder('models')}
-              className="flex items-center gap-2 px-3 py-2 text-sm border border-gray-300 rounded-md hover:bg-gray-100 transition-colors"
-            >
-              <FolderOpen className="w-4 h-4" />
-              Open Folder
-            </button>
-          </div> */}
+            <div className="flex gap-2">
+              <button
+                onClick={handleChangeModelsFolder}
+                disabled={changingModelsFolder}
+                className="flex items-center gap-2 px-3 py-2 text-sm border border-gray-300 rounded-md hover:bg-gray-100 transition-colors disabled:opacity-50"
+              >
+                <FolderInput className="w-4 h-4" />
+                {changingModelsFolder ? 'Moving models…' : 'Change Folder'}
+              </button>
+              <button
+                onClick={() => handleOpenFolder('models')}
+                disabled={changingModelsFolder}
+                className="flex items-center gap-2 px-3 py-2 text-sm border border-gray-300 rounded-md hover:bg-gray-100 transition-colors disabled:opacity-50"
+              >
+                <FolderOpen className="w-4 h-4" />
+                Open Folder
+              </button>
+            </div>
+          </div>
 
           {/* Recordings Location */}
           <div className="p-4 border rounded-lg bg-gray-50">
@@ -215,7 +265,10 @@ export function PreferenceSettings() {
 
         <div className="mt-4 p-3 bg-blue-50 rounded-md">
           <p className="text-xs text-blue-800">
-            <strong>Note:</strong> Database and models are stored together in your application data directory for unified management.
+            <strong>Note:</strong> Moving the models folder relocates all downloaded Whisper,
+            Parakeet, and summary models to the new location — nothing needs to be re-downloaded.
+            The database always stays in your application data directory. Meeting recordings can
+            be relocated from the Recordings tab.
           </p>
         </div>
       </div>
