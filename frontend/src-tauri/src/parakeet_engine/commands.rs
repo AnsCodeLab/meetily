@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use parking_lot::Mutex as PLMutex;
 use std::sync::Arc;
-use tauri::{command, Emitter, AppHandle, Runtime};
+use tauri::{command, Emitter, AppHandle, Runtime, Manager};
 
 // Global parakeet engine
 pub static PARAKEET_ENGINE: Mutex<Option<Arc<ParakeetEngine>>> = Mutex::new(None);

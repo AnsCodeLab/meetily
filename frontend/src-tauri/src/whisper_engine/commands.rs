@@ -2,7 +2,7 @@ use crate::whisper_engine::{ModelInfo, WhisperEngine};
 use std::sync::{Arc, Mutex};
 use parking_lot::Mutex as PLMutex;
 use std::path::{Path, PathBuf};
-use tauri::{command, Emitter};
+use tauri::{command, Emitter, Manager};
 use crate::config::WHISPER_MODEL_CATALOG;
 
 // Global whisper engine
