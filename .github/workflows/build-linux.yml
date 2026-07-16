@@ -202,10 +202,11 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Tauri updater signing: intentionally omitted here. deb/rpm bundles don't
-          # support updater artifacts anyway, and setting these env vars to even an
-          # empty string still makes tauri-action attempt to decode a secret key,
-          # so they must be absent entirely rather than conditionally empty.
+          # Tauri updater signing intentionally skipped for Linux builds: tauri.conf.json
+          # sets bundle.createUpdaterArtifacts=true globally (for the macOS/Windows
+          # updater), which makes the CLI try to decode a signing key even for deb/rpm
+          # bundles that don't support updater artifacts. --no-sign below (not env vars)
+          # is what actually disables that decode attempt.
           # License validation RSA public key (embedded at build time)
           MEETILY_RSA_PUBLIC_KEY: ${{ secrets.MEETILY_RSA_PUBLIC_KEY }}
           # Supabase configuration (for online license verification)
@@ -213,7 +214,7 @@ jobs:
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
         with:
           projectPath: frontend
-          args: --target x86_64-unknown-linux-gnu --features openblas ${{ steps.build-profile.outputs.args }}
+          args: --target x86_64-unknown-linux-gnu --features openblas --no-sign ${{ steps.build-profile.outputs.args }}
 
       - name: Verify build artifacts
         run: |
