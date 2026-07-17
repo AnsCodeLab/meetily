@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { useTranscripts } from '@/contexts/TranscriptContext';
 import { useSidebar } from '@/components/Sidebar/SidebarProvider';
@@ -29,6 +29,16 @@ export function useRecordingStart(
   showModal?: (name: 'modelSelector', message?: string) => void
 ): UseRecordingStartReturn {
   const [isAutoStarting, setIsAutoStarting] = useState(false);
+  // Synchronous guard shared by all three start paths below (manual button,
+  // sessionStorage auto-start, direct sidebar event). isAutoStarting is React
+  // state and updates asynchronously/batched, so two paths triggered in the
+  // same tick can both observe it as false before either sets it -- a classic
+  // TOCTOU race. A ref mutates synchronously, so checking-and-setting it
+  // before any `await` genuinely prevents a second concurrent start attempt,
+  // which otherwise hits the backend's "Recording already in progress" error
+  // and surfaces as a spurious "Recording Failed" toast even though the
+  // first attempt is legitimately recording.
+  const startInFlightRef = useRef(false);
 
   const { clearTranscripts, setMeetingTitle } = useTranscripts();
   const { setIsMeetingActive } = useSidebar();
@@ -79,6 +89,11 @@ export function useRecordingStart(
 
   // Handle manual recording start (from button click)
   const handleRecordingStart = useCallback(async () => {
+    if (startInFlightRef.current || isRecording) {
+      console.log('Recording start already in progress or already recording, ignoring duplicate trigger');
+      return;
+    }
+    startInFlightRef.current = true;
     try {
       console.log('handleRecordingStart called - checking Parakeet model status');
 
@@ -136,16 +151,19 @@ export function useRecordingStart(
       setIsRecording(false); // Reset state on error
       // Re-throw so RecordingControls can handle device-specific errors
       throw error;
+    } finally {
+      startInFlightRef.current = false;
     }
-  }, [generateMeetingTitle, setMeetingTitle, setIsRecording, clearTranscripts, setIsMeetingActive, checkParakeetReady, checkIfModelDownloading, selectedDevices, showModal, setStatus]);
+  }, [generateMeetingTitle, setMeetingTitle, setIsRecording, clearTranscripts, setIsMeetingActive, checkParakeetReady, checkIfModelDownloading, selectedDevices, showModal, setStatus, isRecording]);
 
   // Check for autoStartRecording flag and start recording automatically
   useEffect(() => {
     const checkAutoStartRecording = async () => {
       if (typeof window !== 'undefined') {
         const shouldAutoStart = sessionStorage.getItem('autoStartRecording');
-        if (shouldAutoStart === 'true' && !isRecording && !isAutoStarting) {
+        if (shouldAutoStart === 'true' && !isRecording && !isAutoStarting && !startInFlightRef.current) {
           console.log('Auto-starting recording from navigation...');
+          startInFlightRef.current = true;
           setIsAutoStarting(true);
           sessionStorage.removeItem('autoStartRecording'); // Clear the flag
 
@@ -168,6 +186,7 @@ export function useRecordingStart(
               showModal?.('modelSelector', 'Transcription model setup required');
               setStatus(RecordingStatus.IDLE);
               setIsAutoStarting(false);
+              startInFlightRef.current = false;
               return;
             }
           }
@@ -203,6 +222,7 @@ export function useRecordingStart(
             alert('Failed to start recording. Check console for details.');
           } finally {
             setIsAutoStarting(false);
+            startInFlightRef.current = false;
           }
         }
       }
@@ -227,12 +247,13 @@ export function useRecordingStart(
   // Listen for direct recording trigger from sidebar when already on home page
   useEffect(() => {
     const handleDirectStart = async () => {
-      if (isRecording || isAutoStarting) {
+      if (isRecording || isAutoStarting || startInFlightRef.current) {
         console.log('Recording already in progress, ignoring direct start event');
         return;
       }
 
       console.log('Direct start from sidebar - checking Parakeet model status');
+      startInFlightRef.current = true;
       setIsAutoStarting(true);
 
       // Check if Parakeet transcription model is ready before starting
@@ -254,6 +275,7 @@ export function useRecordingStart(
           showModal?.('modelSelector', 'Transcription model setup required');
           setStatus(RecordingStatus.IDLE);
           setIsAutoStarting(false);
+          startInFlightRef.current = false;
           return;
         }
       }
@@ -288,6 +310,7 @@ export function useRecordingStart(
         alert('Failed to start recording. Check console for details.');
       } finally {
         setIsAutoStarting(false);
+        startInFlightRef.current = false;
       }
     };
 
