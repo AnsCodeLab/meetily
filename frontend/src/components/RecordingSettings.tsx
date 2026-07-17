@@ -5,6 +5,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { DeviceSelection, SelectedDevices } from '@/components/DeviceSelection';
 import Analytics from '@/lib/analytics';
 import { toast } from 'sonner';
+import { useConfig } from '@/contexts/ConfigContext';
 
 export interface RecordingPreferences {
   save_folder: string;
@@ -19,6 +20,7 @@ interface RecordingSettingsProps {
 }
 
 export function RecordingSettings({ onSave }: RecordingSettingsProps) {
+  const { refreshStorageLocations } = useConfig();
   const [preferences, setPreferences] = useState<RecordingPreferences>({
     save_folder: '',
     auto_save: true,
@@ -118,6 +120,7 @@ export function RecordingSettings({ onSave }: RecordingSettingsProps) {
         await invoke('set_recording_preferences', { preferences: newPreferences });
         onSave?.(newPreferences);
         toast.success('Recordings folder updated', { description: selected });
+        await refreshStorageLocations();
         await Analytics.track('recordings_folder_changed', {});
       } catch (error) {
         console.error('Failed to save new recordings folder:', error);
