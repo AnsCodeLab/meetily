@@ -3,7 +3,6 @@ import { Switch } from '@/components/ui/switch';
 import { FolderOpen, FolderInput } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { DeviceSelection, SelectedDevices } from '@/components/DeviceSelection';
-import Analytics from '@/lib/analytics';
 import { toast } from 'sonner';
 import { useConfig } from '@/contexts/ConfigContext';
 
@@ -74,11 +73,6 @@ export function RecordingSettings({ onSave }: RecordingSettingsProps) {
     const newPreferences = { ...preferences, auto_save: enabled };
     setPreferences(newPreferences);
     await savePreferences(newPreferences);
-
-    // Track auto-save setting change
-    await Analytics.track('auto_save_recording_toggled', {
-      enabled: enabled.toString()
-    });
   };
 
   const handleDeviceChange = async (devices: SelectedDevices) => {
@@ -89,13 +83,6 @@ export function RecordingSettings({ onSave }: RecordingSettingsProps) {
     };
     setPreferences(newPreferences);
     await savePreferences(newPreferences);
-
-    // Track default device preference changes
-    // Note: Individual device selection analytics are tracked in DeviceSelection component
-    await Analytics.track('default_devices_changed', {
-      has_preferred_microphone: (!!devices.micDevice).toString(),
-      has_preferred_system_audio: (!!devices.systemDevice).toString()
-    });
   };
 
   const handleOpenFolder = async () => {
@@ -121,7 +108,6 @@ export function RecordingSettings({ onSave }: RecordingSettingsProps) {
         onSave?.(newPreferences);
         toast.success('Recordings folder updated', { description: selected });
         await refreshStorageLocations();
-        await Analytics.track('recordings_folder_changed', {});
       } catch (error) {
         console.error('Failed to save new recordings folder:', error);
         toast.error('Failed to update recordings folder', {
@@ -144,9 +130,6 @@ export function RecordingSettings({ onSave }: RecordingSettingsProps) {
       await store.set('show_recording_notification', enabled);
       await store.save();
       toast.success('Preference saved');
-      await Analytics.track('recording_notification_preference_changed', {
-        enabled: enabled.toString()
-      });
     } catch (error) {
       console.error('Failed to save notification preference:', error);
       toast.error('Failed to save preference');

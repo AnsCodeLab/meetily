@@ -101,6 +101,16 @@
             "binaries/llama-helper",
             "binaries/ffmpeg"
         ],
+        "linux": {
+            "rpm": {
+                "postInstallScript": "scripts/linux-post-install.sh",
+                "postRemoveScript": "scripts/linux-post-remove.sh"
+            },
+            "deb": {
+                "postInstallScript": "scripts/linux-post-install.sh",
+                "postRemoveScript": "scripts/linux-post-remove.sh"
+            }
+        },
         "macOS": {
             "entitlements": "entitlements.plist",
             "signingIdentity": "-",
