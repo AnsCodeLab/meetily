@@ -297,12 +297,20 @@ pub async fn generate_summary(
         return Err(format!("LLM API request failed: {}", error_body));
     }
 
-    // Parse response based on provider
+    // Parse response based on provider. Read the raw body first and use a
+    // tolerant parser: some OpenAI-compatible servers (llama.cpp/llama-server
+    // variants) append a stray SSE terminator like ` data: [DONE]` after an
+    // otherwise valid, non-streaming JSON body, which `.json::<T>()`/
+    // `serde_json::from_str` reject as trailing characters.
+    let response_text = response
+        .text()
+        .await
+        .map_err(|e| format!("Failed to read LLM response: {}", e))?;
+
     if provider == &LLMProvider::Claude {
-        let chat_response = response
-            .json::<ClaudeChatResponse>()
-            .await
-            .map_err(|e| format!("Failed to parse LLM response: {}", e))?;
+        let chat_response: ClaudeChatResponse =
+            crate::utils::parse_json_prefix(&response_text)
+                .map_err(|e| format!("Failed to parse LLM response: {}. Response: {}", e, response_text))?;
 
         info!("🐞 LLM Response received from Claude");
 
@@ -314,10 +322,9 @@ pub async fn generate_summary(
             .trim();
         Ok(content.to_string())
     } else {
-        let chat_response = response
-            .json::<ChatResponse>()
-            .await
-            .map_err(|e| format!("Failed to parse LLM response: {}", e))?;
+        let chat_response: ChatResponse =
+            crate::utils::parse_json_prefix(&response_text)
+                .map_err(|e| format!("Failed to parse LLM response: {}. Response: {}", e, response_text))?;
 
         info!("🐞 LLM Response received from {}", provider_name(provider));
 

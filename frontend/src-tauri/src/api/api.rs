@@ -1325,7 +1325,7 @@ pub async fn api_test_custom_openai_connection<R: Runtime>(
 
             if status.is_success() {
                 // Parse response as JSON to verify it's a valid OpenAI-compatible response
-                match serde_json::from_str::<serde_json::Value>(&response_text) {
+                match crate::utils::parse_json_prefix::<serde_json::Value>(&response_text) {
                     Ok(json) => {
                         // Verify the response has the expected OpenAI structure
                         if let Some(choices) = json.get("choices") {
