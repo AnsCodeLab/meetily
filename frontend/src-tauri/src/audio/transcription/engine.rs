@@ -47,6 +47,18 @@ impl TranscriptionEngine {
     }
 }
 
+/// Whether any model in a discovery result is currently mid-download. Used to
+/// downgrade a "model not ready" validation failure into "proceed without live
+/// transcription for now" instead of blocking recording outright.
+fn is_any_model_downloading<T>(
+    models: Result<Vec<T>, String>,
+    is_downloading: impl Fn(&T) -> bool,
+) -> bool {
+    models
+        .map(|list| list.iter().any(is_downloading))
+        .unwrap_or(false)
+}
+
 // ============================================================================
 // MODEL VALIDATION AND INITIALIZATION
 // ============================================================================
@@ -107,6 +119,25 @@ pub async fn validate_transcription_model_ready<R: Runtime>(app: &AppHandle<R>) 
                 }
                 Err(e) => {
                     warn!("❌ Whisper model validation failed: {}", e);
+
+                    // If a model is still downloading (rather than genuinely missing/misconfigured),
+                    // don't block recording. The transcription worker already tolerates a
+                    // not-yet-loaded model by skipping those chunks (see worker.rs), so the
+                    // recording will simply start without live transcription until the download
+                    // finishes and the model is loaded.
+                    if is_any_model_downloading(
+                        crate::whisper_engine::commands::whisper_get_available_models().await,
+                        |m: &crate::whisper_engine::ModelInfo| {
+                            matches!(m.status, crate::whisper_engine::ModelStatus::Downloading { .. })
+                        },
+                    ) {
+                        warn!(
+                            "⏳ Whisper model is still downloading; allowing recording to start \
+                             without live transcription until it's ready"
+                        );
+                        return Ok(());
+                    }
+
                     Err(e)
                 }
             }
@@ -131,6 +162,22 @@ pub async fn validate_transcription_model_ready<R: Runtime>(app: &AppHandle<R>) 
                 }
                 Err(e) => {
                     warn!("❌ Parakeet model validation failed: {}", e);
+
+                    // Same graceful downgrade as Whisper above: don't block recording just
+                    // because the configured model is still downloading.
+                    if is_any_model_downloading(
+                        crate::parakeet_engine::commands::parakeet_get_available_models().await,
+                        |m: &crate::parakeet_engine::ModelInfo| {
+                            matches!(m.status, crate::parakeet_engine::ModelStatus::Downloading { .. })
+                        },
+                    ) {
+                        warn!(
+                            "⏳ Parakeet model is still downloading; allowing recording to start \
+                             without live transcription until it's ready"
+                        );
+                        return Ok(());
+                    }
+
                     Err(e)
                 }
             }
@@ -440,4 +487,53 @@ pub async fn get_or_init_whisper<R: Runtime>(
     }
 
     Ok(engine)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[derive(Debug)]
+    enum FakeStatus {
+        Available,
+        Downloading,
+    }
+
+    struct FakeModel {
+        status: FakeStatus,
+    }
+
+    #[test]
+    fn detects_a_downloading_model_among_others() {
+        let models: Result<Vec<FakeModel>, String> = Ok(vec![
+            FakeModel { status: FakeStatus::Available },
+            FakeModel { status: FakeStatus::Downloading },
+        ]);
+
+        assert!(is_any_model_downloading(models, |m| matches!(
+            m.status,
+            FakeStatus::Downloading
+        )));
+    }
+
+    #[test]
+    fn no_downloading_model_returns_false() {
+        let models: Result<Vec<FakeModel>, String> =
+            Ok(vec![FakeModel { status: FakeStatus::Available }]);
+
+        assert!(!is_any_model_downloading(models, |m| matches!(
+            m.status,
+            FakeStatus::Downloading
+        )));
+    }
+
+    #[test]
+    fn discovery_failure_is_treated_as_not_downloading() {
+        let models: Result<Vec<FakeModel>, String> = Err("discovery failed".to_string());
+
+        assert!(!is_any_model_downloading(models, |m| matches!(
+            m.status,
+            FakeStatus::Downloading
+        )));
+    }
 }

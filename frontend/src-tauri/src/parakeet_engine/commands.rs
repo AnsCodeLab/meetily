@@ -309,44 +309,50 @@ pub async fn parakeet_validate_model_ready_with_config<R: tauri::Runtime>(
             );
         }
 
-        // Try to load user's configured model if specified
-        let model_name = if let Some(configured_model) = model_to_load {
-            // Check if configured model is available
-            if available_models.iter().any(|m| m.name == configured_model) {
-                log::info!("Loading user's configured Parakeet model: {}", configured_model);
-                configured_model
+        // Build an ordered list of candidate models to try: the user's configured
+        // model first (if actually available), then remaining models preferring
+        // int8 quantization, as a fallback in case the configured one is corrupted.
+        let mut candidates: Vec<String> = Vec::new();
+        if let Some(configured_model) = &model_to_load {
+            if available_models.iter().any(|m| &m.name == configured_model) {
+                candidates.push(configured_model.clone());
             } else {
                 log::warn!(
-                    "Configured Parakeet model '{}' not found, falling back to first available int8 model",
+                    "Configured Parakeet model '{}' not found among available models, will try others",
                     configured_model
                 );
-                // Prefer int8 quantization for best speed/quality tradeoff
-                available_models
-                    .iter()
-                    .find(|m| m.quantization == crate::parakeet_engine::QuantizationType::Int8)
-                    .or_else(|| available_models.first())
-                    .unwrap()
-                    .name
-                    .clone()
             }
-        } else {
-            // No configured model, prefer int8 for best speed/quality balance
-            log::info!("No configured model, loading first available int8 Parakeet model");
-            available_models
-                .iter()
-                .find(|m| m.quantization == crate::parakeet_engine::QuantizationType::Int8)
-                .or_else(|| available_models.first())
-                .unwrap()
-                .name
-                .clone()
-        };
+        }
+        let mut remaining: Vec<_> = available_models
+            .iter()
+            .filter(|m| !candidates.contains(&m.name))
+            .collect();
+        remaining.sort_by_key(|m| m.quantization != crate::parakeet_engine::QuantizationType::Int8);
+        candidates.extend(remaining.into_iter().map(|m| m.name.clone()));
 
-        engine
-            .load_model(&model_name)
-            .await
-            .map_err(|e| format!("Failed to load Parakeet model {}: {}", model_name, e))?;
+        let mut last_error: Option<String> = None;
+        for model_name in candidates {
+            match engine.load_model(&model_name).await {
+                Ok(()) => return Ok(model_name),
+                Err(e) => {
+                    log::warn!(
+                        "❌ Parakeet model '{}' failed to load ({}); removing it as corrupted and trying the next available model",
+                        model_name, e
+                    );
+                    let _ = engine.delete_model(&model_name).await;
+                    last_error = Some(format!("Failed to load Parakeet model {}: {}", model_name, e));
+                }
+            }
+        }
 
-        Ok(model_name)
+        Err(match last_error {
+            Some(e) => format!(
+                "{} All available Parakeet models were corrupted and have been removed. Please download a model again.",
+                e
+            ),
+            None => "No Parakeet models are available. Please download a model to enable fast transcription."
+                .to_string(),
+        })
     } else {
         Err("Parakeet engine not initialized".to_string())
     }

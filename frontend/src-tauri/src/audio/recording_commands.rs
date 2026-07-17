@@ -94,11 +94,13 @@ pub async fn start_recording_with_meeting_name<R: Runtime>(
     if let Err(validation_error) = transcription::validate_transcription_model_ready(&app).await {
         error!("Model validation failed: {}", validation_error);
 
-        // Emit error event for frontend - actionable: false to show toast instead of modal
-        // (download progress is already shown in top-right toast)
+        // Emit error event for frontend - actionable: false to show toast instead of modal.
+        // A model still downloading no longer reaches here (validate_transcription_model_ready
+        // lets recording proceed in that case), so this is a genuine failure: no model
+        // configured/downloaded, an unsupported provider, or the engine failed to initialize.
         let _ = app.emit("transcription-error", serde_json::json!({
             "error": validation_error,
-            "userMessage": "Recording cannot start: Transcription model is still downloading. Please wait for the download to complete.",
+            "userMessage": format!("Recording cannot start: {}", validation_error),
             "actionable": false
         }));
 
@@ -340,11 +342,13 @@ pub async fn start_recording_with_devices_and_meeting<R: Runtime>(
     if let Err(validation_error) = transcription::validate_transcription_model_ready(&app).await {
         error!("Model validation failed: {}", validation_error);
 
-        // Emit error event for frontend - actionable: false to show toast instead of modal
-        // (download progress is already shown in top-right toast)
+        // Emit error event for frontend - actionable: false to show toast instead of modal.
+        // A model still downloading no longer reaches here (validate_transcription_model_ready
+        // lets recording proceed in that case), so this is a genuine failure: no model
+        // configured/downloaded, an unsupported provider, or the engine failed to initialize.
         let _ = app.emit("transcription-error", serde_json::json!({
             "error": validation_error,
-            "userMessage": "Recording cannot start: Transcription model is still downloading. Please wait for the download to complete.",
+            "userMessage": format!("Recording cannot start: {}", validation_error),
             "actionable": false
         }));
 

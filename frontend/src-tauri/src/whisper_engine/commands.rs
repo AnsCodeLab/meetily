@@ -359,35 +359,54 @@ pub async fn whisper_validate_model_ready_with_config<R: tauri::Runtime>(
             );
         }
 
-        // Try to load user's configured model if specified
-        let model_name = if let Some(configured_model) = model_to_load {
-            // Check if configured model is available
-            if available_models.iter().any(|m| m.name == configured_model) {
-                log::info!("Loading user's configured model: {}", configured_model);
-                configured_model
+        // Build an ordered list of candidate models to try: the user's configured
+        // model first (if it's actually marked available), then every other
+        // available model as a fallback in case the configured one is corrupted
+        // (e.g. a truncated or bit-rotted download that still passed the size-based
+        // availability check but fails whisper.cpp's own tensor validation).
+        let mut candidates: Vec<String> = Vec::new();
+        if let Some(configured_model) = &model_to_load {
+            if available_models.iter().any(|m| &m.name == configured_model) {
+                candidates.push(configured_model.clone());
             } else {
                 log::warn!(
-                    "Configured model '{}' not found, falling back to first available: {}",
-                    configured_model,
-                    available_models[0].name
+                    "Configured model '{}' not found among available models, will try others",
+                    configured_model
                 );
-                available_models[0].name.clone()
             }
-        } else {
-            // No configured model, use first available
-            log::info!(
-                "No configured model, loading first available: {}",
-                available_models[0].name
-            );
-            available_models[0].name.clone()
-        };
+        }
+        for m in &available_models {
+            if !candidates.contains(&m.name) {
+                candidates.push(m.name.clone());
+            }
+        }
 
-        engine
-            .load_model(&model_name)
-            .await
-            .map_err(|e| format!("Failed to load model {}: {}", model_name, e))?;
+        let mut last_error: Option<String> = None;
+        for model_name in candidates {
+            match engine.load_model(&model_name).await {
+                Ok(()) => return Ok(model_name),
+                Err(e) => {
+                    log::warn!(
+                        "❌ Model '{}' failed to load ({}); removing it as corrupted and trying the next available model",
+                        model_name, e
+                    );
+                    // Best-effort cleanup so this corrupted file stops masquerading as
+                    // "Available" for future attempts. Ignore delete failures — worst
+                    // case it just gets retried and fails again next time.
+                    let _ = engine.delete_model(&model_name).await;
+                    last_error = Some(format!("Failed to load model {}: {}", model_name, e));
+                }
+            }
+        }
 
-        Ok(model_name)
+        Err(match last_error {
+            Some(e) => format!(
+                "{} All available Whisper models were corrupted and have been removed. Please download a model again.",
+                e
+            ),
+            None => "No Whisper models are available. Please download a model to enable transcription."
+                .to_string(),
+        })
     } else {
         Err("Whisper engine not initialized".to_string())
     }

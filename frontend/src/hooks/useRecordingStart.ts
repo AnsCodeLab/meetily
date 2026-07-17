@@ -87,8 +87,10 @@ export function useRecordingStart(
       if (!parakeetReady) {
         const isDownloading = await checkIfModelDownloading();
         if (isDownloading) {
-          toast.info('Model download in progress', {
-            description: 'Please wait for the transcription model to finish downloading before recording.',
+          // Don't block: the backend already tolerates recording without a loaded
+          // model (chunks are simply skipped for transcription until it's ready).
+          toast.info('Model still downloading', {
+            description: 'Recording will start now; live transcription begins once the download finishes.',
             duration: 5000,
           });
         } else {
@@ -97,9 +99,9 @@ export function useRecordingStart(
             duration: 5000,
           });
           showModal?.('modelSelector', 'Transcription model setup required');
+          setStatus(RecordingStatus.IDLE);
+          return;
         }
-        setStatus(RecordingStatus.IDLE);
-        return;
       }
 
       console.log('Parakeet ready - setting up meeting title and state');
@@ -152,8 +154,10 @@ export function useRecordingStart(
           if (!parakeetReady) {
             const isDownloading = await checkIfModelDownloading();
             if (isDownloading) {
-              toast.info('Model download in progress', {
-                description: 'Please wait for the transcription model to finish downloading before recording.',
+              // Don't block: the backend already tolerates recording without a loaded
+              // model (chunks are simply skipped for transcription until it's ready).
+              toast.info('Model still downloading', {
+                description: 'Recording will start now; live transcription begins once the download finishes.',
                 duration: 5000,
               });
             } else {
@@ -162,10 +166,10 @@ export function useRecordingStart(
                 duration: 5000,
               });
               showModal?.('modelSelector', 'Transcription model setup required');
+              setStatus(RecordingStatus.IDLE);
+              setIsAutoStarting(false);
+              return;
             }
-            setStatus(RecordingStatus.IDLE);
-            setIsAutoStarting(false);
-            return;
           }
 
           // Start the actual backend recording
@@ -236,8 +240,10 @@ export function useRecordingStart(
       if (!parakeetReady) {
         const isDownloading = await checkIfModelDownloading();
         if (isDownloading) {
-          toast.info('Model download in progress', {
-            description: 'Please wait for the transcription model to finish downloading before recording.',
+          // Don't block: the backend already tolerates recording without a loaded
+          // model (chunks are simply skipped for transcription until it's ready).
+          toast.info('Model still downloading', {
+            description: 'Recording will start now; live transcription begins once the download finishes.',
             duration: 5000,
           });
         } else {
@@ -246,10 +252,10 @@ export function useRecordingStart(
             duration: 5000,
           });
           showModal?.('modelSelector', 'Transcription model setup required');
+          setStatus(RecordingStatus.IDLE);
+          setIsAutoStarting(false);
+          return;
         }
-        setStatus(RecordingStatus.IDLE);
-        setIsAutoStarting(false);
-        return;
       }
 
       try {

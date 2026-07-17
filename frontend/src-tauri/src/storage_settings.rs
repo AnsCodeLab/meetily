@@ -149,7 +149,25 @@ pub async fn select_models_directory<R: Runtime>(
     info!("Opening dialog to select models storage location");
 
     let folder = app.dialog().file().blocking_pick_folder();
-    Ok(folder.map(|p| p.to_string()))
+    match folder {
+        None => Ok(None),
+        Some(picked) => {
+            // `.into_path()` (not `.to_string()`) is required here: some desktop
+            // portals return a `file://` URI instead of a plain path, and stringifying
+            // that directly instead of resolving it produces a bogus non-absolute
+            // path once re-parsed.
+            let path = picked
+                .into_path()
+                .map_err(|e| format!("Failed to resolve selected folder: {}", e))?;
+            if !path.is_absolute() {
+                return Err(format!(
+                    "Selected folder resolved to a non-absolute path: {}",
+                    path.display()
+                ));
+            }
+            Ok(Some(path.to_string_lossy().to_string()))
+        }
+    }
 }
 
 /// Move all downloaded models (Whisper, Parakeet, summary) to `new_dir`, persist the
@@ -160,6 +178,12 @@ pub async fn change_models_directory<R: Runtime>(
     new_dir: String,
 ) -> Result<String, String> {
     let new_root = PathBuf::from(&new_dir);
+    if !new_root.is_absolute() {
+        return Err(format!(
+            "New models location must be an absolute path, got: {}",
+            new_dir
+        ));
+    }
     let old_root = resolve_models_root(&app);
 
     if new_root == old_root {
